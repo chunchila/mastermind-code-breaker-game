@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>פיצוח הקוד</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:#101418;font-family:'Segoe UI',Arial,sans-serif;color:#eef4f8;touch-action:none;user-select:none}
+#wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;max-width:440px;margin:0 auto;padding:8px}
+h1{font-size:24px;font-weight:800;background:linear-gradient(90deg,#06d6a0,#ffd60a);-webkit-background-clip:text;background-clip:text;color:transparent}
+#hud{display:flex;gap:8px;margin:6px 0}
+.pill{background:#1c232a;border-radius:20px;padding:5px 12px;font-size:13px;font-weight:700}
+#board{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:12px;background:#161d23}
+.row.active{background:#222d36;box-shadow:0 0 0 2px #06d6a0 inset}
+.row.past{opacity:.85}
+.slots{display:flex;gap:8px}
+.slot{width:38px;height:38px;border-radius:50%;background:#0c1013;border:2px dashed #33404c;cursor:pointer}
+.slot.filled{border:2px solid #0008;cursor:pointer}
+.pegs{display:flex;flex-wrap:wrap;width:44px;gap:3px;justify-content:center}
+.peg{width:11px;height:11px;border-radius:50%}
+.peg.b{background:#06d6a0;box-shadow:0 0 4px #06d6a0}
+.peg.w{background:#ffd60a}
+#palette{display:flex;gap:10px;margin:8px 0;padding:10px;background:#161d23;border-radius:16px}
+.col{width:40px;height:40px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:transform .1s}
+.col.sel{border-color:#fff;transform:scale(1.12)}
+#checkBtn{background:linear-gradient(135deg,#06d6a0,#4cc9f0);color:#04202a;border:none;padding:11px 34px;font-size:17px;font-weight:800;border-radius:30px;cursor:pointer;margin:4px 0}
+#checkBtn:disabled{opacity:.35;cursor:default}
+.ov{position:fixed;inset:0;background:rgba(8,12,16,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5;text-align:center;padding:20px}
+.ov h2{font-size:30px;background:linear-gradient(90deg,#06d6a0,#ffd60a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.ov p{font-size:16px;color:#c3d2dc;max-width:330px;line-height:1.5}
+.btn{background:linear-gradient(135deg,#06d6a0,#4cc9f0);color:#04202a;border:none;padding:14px 38px;font-size:19px;font-weight:800;border-radius:40px;cursor:pointer;box-shadow:0 6px 22px rgba(6,214,160,.35)}
+.hidden{display:none}
+#secretRow{display:flex;gap:8px;justify-content:center;margin:6px 0}
+#secretRow .slot{border:2px solid #33404c}
+</style>
+</head>
+<body>
+<div id="wrap">
+<h1>פיצוח הקוד</h1>
+<div id="hud">
+  <div class="pill" id="tries">ניסיון 1/10</div>
+  <div class="pill" id="streak">רצף פיצוחים: 0</div>
+</div>
+<div id="secretRow"></div>
+<div id="board"></div>
+<div id="palette"></div>
+<button id="checkBtn" disabled>בדיקה</button>
+</div>
+<div class="ov" id="startOv">
+  <h2>פיצוח הקוד</h2>
+  <p>המחשב בחר קוד סודי של 4 צבעים. יש לכם 10 ניסיונות. פג ירוק = צבע נכון במקום הנכון, פג צהוב = צבע נכון במקום הלא נכון.</p>
+  <button class="btn" id="startBtn">לפצח!</button>
+</div>
+<div class="ov hidden" id="endOv">
+  <h2 id="endTitle"></h2>
+  <p id="endText"></p>
+  <button class="btn" id="againBtn">קוד חדש</button>
+</div>
+<script>
+(function(){
+'use strict';
+var COLORS=['#f72585','#ffd60a','#06d6a0','#4cc9f0','#b5179e','#ff9f1c'];
+var NAMES=['ורוד','צהוב','ירוק','תכלת','סגול','כתום'];
+var code=[],cur=[null,null,null,null],attempt=0,MAXTRY=10,playing=false,selCol=0;
+var streak=+(localStorage.getItem('mm_streak')||0);
+document.getElementById('streak').textContent='רצף פיצוחים: '+streak;
+var board=document.getElementById('board'),palette=document.getElementById('palette'),checkBtn=document.getElementById('checkBtn');
+var rows=[];
+COLORS.forEach(function(c,i){
+  var d=document.createElement('div');
+  d.className='col'+(i===0?' sel':'');
+  d.style.background=c;
+  d.addEventListener('click',function(){selCol=i;document.querySelectorAll('.col').forEach(function(e){e.classList.remove('sel');});d.classList.add('sel');});
+  palette.appendChild(d);
+});
+function newCode(){
+  code=[];
+  for(var i=0;i<4;i++)code.push(Math.floor(Math.random()*COLORS.length));
+  var sr=document.getElementById('secretRow');
+  sr.innerHTML='';
+  for(var j=0;j<4;j++){var s=document.createElement('div');s.className='slot';sr.appendChild(s);}
+}
+function buildRows(){
+  board.innerHTML='';rows=[];
+  for(var i=0;i<MAXTRY;i++){
+    (function(idx){
+      var row=document.createElement('div');
+      row.className='row';
+      var slots=document.createElement('div');slots.className='slots';
+      var slotEls=[];
+      for(var j=0;j<4;j++){
+        (function(jj){
+          var s=document.createElement('div');
+          s.className='slot';
+          s.addEventListener('click',function(){
+            if(!playing||idx!==attempt)return;
+            cur[jj]=selCol;
+            s.style.background=COLORS[selCol];s.classList.add('filled');
+            updateBtn();
+          });
+          slots.appendChild(s);slotEls.push(s);
+        })(j);
+      }
+      var pegs=document.createElement('div');pegs.className='pegs';
+      row.appendChild(slots);row.appendChild(pegs);
+      board.appendChild(row);
+      rows.push({el:row,slots:slotEls,pegs:pegs});
+    })(i);
+  }
+}
+function updateBtn(){checkBtn.disabled=!(playing&&cur.every(function(v){return v!==null;}));}
+function feedback(){
+  var blacks=0,whites=0,codeUsed=[0,0,0,0],gUsed=[0,0,0,0];
+  for(var i=0;i<4;i++)if(cur[i]===code[i]){blacks++;codeUsed[i]=1;gUsed[i]=1;}
+  for(var i2=0;i2<4;i2++){if(gUsed[i2])continue;
+    for(var j=0;j<4;j++){if(!codeUsed[j]&&cur[i2]===code[j]){whites++;codeUsed[j]=1;break;}}}
+  return [blacks,whites];
+}
+function reveal(){
+  var sr=document.getElementById('secretRow');
+  sr.innerHTML='';
+  code.forEach(function(ci){
+    var s=document.createElement('div');s.className='slot filled';s.style.background=COLORS[ci];sr.appendChild(s);
+  });
+}
+function endRound(won){
+  playing=false;
+  reveal();
+  if(won){
+    streak++;localStorage.setItem('mm_streak',streak);
+    document.getElementById('endTitle').textContent='הקוד פוצח!';
+    document.getElementById('endText').textContent='פיצחתם ב-'+(attempt+1)+' ניסיונות. רצף: '+streak;
+  }else{
+    streak=0;localStorage.setItem('mm_streak',0);
+    document.getElementById('endTitle').textContent='הקוד לא פוצח...';
+    document.getElementById('endText').textContent='הקוד היה: '+code.map(function(ci){return NAMES[ci];}).join(', ');
+  }
+  document.getElementById('streak').textContent='רצף פיצוחים: '+streak;
+  setTimeout(function(){document.getElementById('endOv').classList.remove('hidden');},1200);
+}
+checkBtn.addEventListener('click',function(){
+  if(checkBtn.disabled)return;
+  var fb=feedback(),row=rows[attempt];
+  row.el.classList.remove('active');row.el.classList.add('past');
+  row.pegs.innerHTML='';
+  for(var b=0;b<fb[0];b++){var p=document.createElement('div');p.className='peg b';row.pegs.appendChild(p);}
+  for(var w=0;w<fb[1];w++){var p2=document.createElement('div');p2.className='peg w';row.pegs.appendChild(p2);}
+  if(fb[0]===4){endRound(true);return;}
+  attempt++;
+  if(attempt>=MAXTRY){endRound(false);return;}
+  cur=[null,null,null,null];
+  rows[attempt].el.classList.add('active');
+  document.getElementById('tries').textContent='ניסיון '+(attempt+1)+'/'+MAXTRY;
+  updateBtn();
+});
+function start(){
+  newCode();buildRows();
+  cur=[null,null,null,null];attempt=0;playing=true;
+  rows[0].el.classList.add('active');
+  document.getElementById('tries').textContent='ניסיון 1/'+MAXTRY;
+  updateBtn();
+}
+document.getElementById('startBtn').addEventListener('click',function(){document.getElementById('startOv').classList.add('hidden');start();});
+document.getElementById('againBtn').addEventListener('click',function(){document.getElementById('endOv').classList.add('hidden');start();});
+newCode();buildRows();
+})();
+</script>
+</body>
+</html>
